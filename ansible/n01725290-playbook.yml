@@ -1,0 +1,12 @@
+---
+- name: Run all roles on Linux inventory nodes
+  hosts: all
+  become: true
+  gather_facts: yes
+
+  roles:
+    - role: profile-n01725290
+    - role: user-n01725290
+    - role: datadisk-n01725290
+    - role: webserver-n01725290
+

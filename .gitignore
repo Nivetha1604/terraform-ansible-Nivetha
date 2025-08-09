@@ -1,0 +1,41 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Keep the lock file (helps provider pinning)
+# !.terraform.lock.hcl
+
+# Plans
+tfplan*
+*.plan
+
+# Ansible temp
+.ansible/
+*.retry
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Keys & secrets
+*.pem
+*.key
+*.pfx
+*.p12
+*.cer
+*.pub
+id_rsa
+id_rsa.*
+*.crt
+secrets*.*
+.env
+.env.*

@@ -1,0 +1,120 @@
+- name: Ensure required disk tools are present
+  become: true
+  package:
+    name:
+      - parted
+      - xfsprogs
+    state: present
+
+- name: Check current partitions
+  become: true
+  stat:
+    path: "{{ item }}"
+  loop:
+    - /dev/sdc1
+    - /dev/sdc2
+  register: part_stats
+
+# Case 1: brand-new disk (no partitions) -> create both at once
+- name: Create GPT + 4GiB /dev/sdc1
+  become: true
+  parted:
+    device: /dev/sdc
+    label: gpt
+    number: 1
+    part_start: 1MiB
+    part_end: 4096MiB
+    state: present
+  when: not part_stats.results[0].stat.exists and not part_stats.results[1].stat.exists
+
+- name: Create /dev/sdc2 (rest of disk)
+  become: true
+  parted:
+    device: /dev/sdc
+    number: 2
+    part_start: 4096MiB
+    part_end: 100%
+    state: present
+  when: not part_stats.results[0].stat.exists and not part_stats.results[1].stat.exists
+
+# Case 2: /dev/sdc1 exists but /dev/sdc2 is missing -> add the second partition
+- name: Create /dev/sdc2 if only sdc1 exists
+  become: true
+  parted:
+    device: /dev/sdc
+    number: 2
+    part_start: 4096MiB
+    part_end: 100%
+    state: present
+  when: part_stats.results[0].stat.exists and not part_stats.results[1].stat.exists
+
+- name: Partprobe to notify kernel
+  become: true
+  command: partprobe
+
+- name: Wait for both partitions to appear
+  become: true
+  wait_for:
+    path: "{{ item }}"
+    state: present
+    timeout: 60
+  loop:
+    - /dev/sdc1
+    - /dev/sdc2
+
+- name: Detect filesystem on /dev/sdc1
+  become: true
+  command: blkid -o value -s TYPE /dev/sdc1
+  register: sdc1_fs
+  changed_when: false
+  failed_when: false
+
+- name: Detect filesystem on /dev/sdc2
+  become: true
+  command: blkid -o value -s TYPE /dev/sdc2
+  register: sdc2_fs
+  changed_when: false
+  failed_when: false
+
+- name: Make XFS on /dev/sdc1 (4GiB)
+  become: true
+  filesystem:
+    fstype: xfs
+    dev: /dev/sdc1
+    force: true
+  when: sdc1_fs.stdout.strip() != "xfs"
+
+- name: Make EXT4 on /dev/sdc2 (~5GiB)
+  become: true
+  filesystem:
+    fstype: ext4
+    dev: /dev/sdc2
+    force: true
+  when: sdc2_fs.stdout.strip() != "ext4"
+
+- name: Create mount points
+  become: true
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /part1
+    - /part2
+
+- name: Mount /dev/sdc1 -> /part1 (XFS)
+  become: true
+  mount:
+    path: /part1
+    src: /dev/sdc1
+    fstype: xfs
+    state: mounted
+
+- name: Mount /dev/sdc2 -> /part2 (EXT4)
+  become: true
+  mount:
+    path: /part2
+    src: /dev/sdc2
+    fstype: ext4
+    state: mounted
+

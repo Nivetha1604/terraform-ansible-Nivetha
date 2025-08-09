@@ -1,0 +1,6 @@
+admin_username      = "user100"
+location            = "canadacentral"
+resource_group_name = "n01725290-rg"
+vm_size             = "Standard_B1s"
+public_key_path     = "~/.ssh/id_rsa_azure_rsa.pub"
+my_ip_cidr          = "173.34.166.203/32"

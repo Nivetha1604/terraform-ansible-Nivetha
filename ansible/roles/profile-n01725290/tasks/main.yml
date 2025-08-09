@@ -1,0 +1,9 @@
+- name: Ensure profile block exists
+  blockinfile:
+    path: /etc/profile
+    create: yes
+    marker: "# {mark} ANSIBLE profile-n01725290"
+    block: |
+      #Test block added by Ansible……n01725290
+      export TMOUT=1500
+  become: true

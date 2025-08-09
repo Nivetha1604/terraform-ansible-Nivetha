@@ -1,0 +1,62 @@
+- name: Ensure required groups exist
+  become: true
+  group:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - cloudadmins
+    - wheel
+
+- name: Create users and generate SSH keys (no passphrase)
+  become: true
+  user:
+    name: "{{ item }}"
+    state: present
+    create_home: true
+    shell: /bin/bash
+    groups: "cloudadmins,wheel"
+    append: true
+    generate_ssh_key: true
+    ssh_key_file: ".ssh/id_rsa"
+    ssh_key_type: rsa
+    ssh_key_bits: 2048
+  loop:
+    - user100
+    - user200
+    - user300
+
+- name: Tighten ~/.ssh permissions for each user
+  become: true
+  file:
+    path: "/home/{{ item }}/.ssh"
+    state: directory
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: '0700'
+  loop:
+    - user100
+    - user200
+    - user300
+
+- name: Ensure private keys mode is 0600
+  become: true
+  file:
+    path: "/home/{{ item }}/.ssh/id_rsa"
+    state: file
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: '0600'
+  loop:
+    - user100
+    - user200
+    - user300
+
+# Download user100's private key from the FIRST host in [linux] only
+- name: Fetch user100 private key from VM1 to controller
+  become: true
+  fetch:
+    src: "/home/user100/.ssh/id_rsa"
+    dest: "../downloaded_keys/user100_id_rsa"
+    flat: true
+  when: inventory_hostname == (groups['linux'][0] | default(inventory_hostname))
+
