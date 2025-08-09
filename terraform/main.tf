@@ -41,8 +41,8 @@ module "linux_vm" {
   location         = module.resource_group.location
   vm_size          = "Standard_B1s"
   admin_username   = "user100"
-  public_key_path  = "/home/n01725290/.ssh/id_rsa_azure_rsa_rsa.pub"
-  private_key_path = "/home/n01725290/.ssh/id_rsa_azure_rsa_rsa"
+  public_key_path  = "/home/n01725290/.ssh/ccgc_id.pub"
+  private_key_path = "/home/n01725290/.ssh/ccgc_id"
   subnet_id        = module.subnet.subnet_id
 }
 

@@ -31,18 +31,27 @@ resource "null_resource" "run_ansible" {
   }
 
   provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
-    command     = <<-EOC
-      set -e
-      mkdir -p .ansible
-      cat > .ansible/inventory_n01725290.ini <<'INV'
-      [linux]
-      ${join("\n", [for ip in local.public_ips : "${ip} ansible_user=azureuser ansible_ssh_private_key_file=/home/n01725290/.ssh/id_rsa ansible_ssh_common_args='-o StrictHostKeyChecking=no'"])}
-      INV
-      echo ">>> Inventory written to .ansible/inventory_n01725290.ini"
-      ansible --version
-      ansible-playbook -i .ansible/inventory_n01725290.ini ../ansible/n01725290-playbook.yml
-    EOC
-  }
-}
+  interpreter = ["/bin/bash", "-c"]
+  command     = <<-EOC
+    set -e
+    mkdir -p .ansible
 
+    cat > .ansible/inventory_n01725290.ini <<'INV'
+[linux]
+${join("\n", [for ip in local.public_ips : "${ip} ansible_user=azureuser ansible_ssh_private_key_file=/home/n01725290/.ssh/ccgc_id ansible_ssh_common_args='-o StrictHostKeyChecking=no'"])}
+INV
+
+    echo ">>> Inventory written to .ansible/inventory_n01725290.ini"
+    ansible --version
+
+    # Wait for SSH on each host (prevents race conditions)
+    for h in $(awk '/^[0-9]/{print $1}' .ansible/inventory_n01725290.ini); do
+      echo "Waiting for SSH on $h..."
+      until ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i /home/n01725290/.ssh/ccgc_id azureuser@"$h" true 2>/dev/null; do
+        sleep 5
+      done
+    done
+    ansible-playbook -i .ansible/inventory_n01725290.ini ../ansible/n01725290-playbook.yml
+  EOC
+}
+}

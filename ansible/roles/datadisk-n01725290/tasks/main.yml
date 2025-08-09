@@ -1,11 +1,28 @@
+---
+# roles/datadisk-n01725290/tasks/main.yml
+
 - name: Ensure required disk tools are present
   become: true
   package:
     name:
       - parted
       - xfsprogs
+      - gdisk            # for sgdisk fallback
     state: present
 
+# Safety: verify data disk exists
+- name: Check that /dev/sdc exists
+  become: true
+  stat:
+    path: /dev/sdc
+  register: sdc_dev
+
+- name: Fail if /dev/sdc is missing
+  fail:
+    msg: "/dev/sdc not found. Ensure the data disk is attached in Terraform."
+  when: not sdc_dev.stat.exists
+
+# Detect current partitions
 - name: Check current partitions
   become: true
   stat:
@@ -15,8 +32,22 @@
     - /dev/sdc2
   register: part_stats
 
-# Case 1: brand-new disk (no partitions) -> create both at once
-- name: Create GPT + 4GiB /dev/sdc1
+# Ensure GPT label (idempotent)
+- name: Detect partition table type
+  become: true
+  shell: |
+    parted -s /dev/sdc print | awk -F': ' '/Partition Table/ {print $2}'
+  register: pttype
+  changed_when: false
+  failed_when: false
+
+- name: Create GPT label if needed
+  become: true
+  command: parted -s /dev/sdc mklabel gpt
+  when: (pttype.stdout | trim) != "gpt"
+
+# Case 1: brand new disk -> create both partitions
+- name: Create 4GiB /dev/sdc1
   become: true
   parted:
     device: /dev/sdc
@@ -37,31 +68,81 @@
     state: present
   when: not part_stats.results[0].stat.exists and not part_stats.results[1].stat.exists
 
-# Case 2: /dev/sdc1 exists but /dev/sdc2 is missing -> add the second partition
-- name: Create /dev/sdc2 if only sdc1 exists
+# Case 2: /dev/sdc1 exists but /dev/sdc2 is missing -> add second partition
+- name: Create /dev/sdc2 if only sdc1 exists (parted)
   become: true
-  parted:
-    device: /dev/sdc
-    number: 2
-    part_start: 4096MiB
-    part_end: 100%
-    state: present
+  command: /usr/sbin/parted -s -m -a optimal /dev/sdc -- unit MiB mkpart primary 4096 100%
   when: part_stats.results[0].stat.exists and not part_stats.results[1].stat.exists
+  register: parted_create
+  changed_when: parted_create.rc == 0
+  failed_when: false
 
+# Fallback using sgdisk if /dev/sdc2 still missing
+- name: Create /dev/sdc2 with sgdisk if still missing
+  become: true
+  shell: |
+    sgdisk -n 2:4096MiB:0 -t 2:8300 /dev/sdc
+    partprobe /dev/sdc || true
+  when: part_stats.results[0].stat.exists and not part_stats.results[1].stat.exists
+  register: sgdisk_create
+  changed_when: sgdisk_create.rc == 0
+  failed_when: false
+
+# Case 2b: sdc1 occupies the tail (starts at 4096MiB) and sdc2 is missing -> create front partition
+- name: Create /dev/sdc2 at 1MiB..4096MiB when only sdc1 exists
+  become: true
+  shell: |
+    parted -s /dev/sdc unit MiB mkpart primary 1 4096
+    partprobe /dev/sdc || true
+  when: part_stats.results[0].stat.exists and not part_stats.results[1].stat.exists
+  register: sdc2_front_create
+  changed_when: sdc2_front_create.rc == 0
+  failed_when: false
+
+# Notify kernel + settle before waiting
 - name: Partprobe to notify kernel
   become: true
   command: partprobe
 
-- name: Wait for both partitions to appear
+- name: Settle udev and reread partition table
+  become: true
+  shell: |
+    udevadm settle
+    blockdev --rereadpt /dev/sdc || true
+    sleep 3
+  changed_when: false
+
+# Re-check after potential creation
+- name: Re-check partitions after creation
+  become: true
+  stat:
+    path: "{{ item }}"
+  loop:
+    - /dev/sdc1
+    - /dev/sdc2
+  register: part_stats_after
+
+- name: Force kernel to re-read partitions (partx + udev)
+  become: true
+  shell: |
+    partx -a /dev/sdc || true
+    udevadm trigger
+    udevadm settle
+    sleep 3
+  changed_when: false
+
+# Longer wait to avoid races on slower disks
+- name: Wait for both partitions to appear (longer timeout)
   become: true
   wait_for:
     path: "{{ item }}"
     state: present
-    timeout: 60
+    timeout: 300
   loop:
     - /dev/sdc1
     - /dev/sdc2
 
+# Detect existing filesystems
 - name: Detect filesystem on /dev/sdc1
   become: true
   command: blkid -o value -s TYPE /dev/sdc1
@@ -76,13 +157,14 @@
   changed_when: false
   failed_when: false
 
+# Create filesystems if missing (idempotent)
 - name: Make XFS on /dev/sdc1 (4GiB)
   become: true
   filesystem:
     fstype: xfs
     dev: /dev/sdc1
     force: true
-  when: sdc1_fs.stdout.strip() != "xfs"
+  when: (sdc1_fs.stdout | trim) != "xfs"
 
 - name: Make EXT4 on /dev/sdc2 (~5GiB)
   become: true
@@ -90,8 +172,9 @@
     fstype: ext4
     dev: /dev/sdc2
     force: true
-  when: sdc2_fs.stdout.strip() != "ext4"
+  when: (sdc2_fs.stdout | trim) != "ext4"
 
+# Mounts (persisted in /etc/fstab)
 - name: Create mount points
   become: true
   file:

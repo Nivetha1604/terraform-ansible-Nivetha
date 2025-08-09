@@ -33,12 +33,12 @@ resource "azurerm_linux_virtual_machine" "vm" {
   resource_group_name             = var.rg_name
   location                        = var.location
   size                            = var.vm_size
-  admin_username                  = var.admin_username
+  admin_username                  = "azureuser"
   network_interface_ids           = [azurerm_network_interface.nic.id]
   disable_password_authentication = true
 
   admin_ssh_key {
-    username   = var.admin_username
+    username   = "azureuser"
     public_key = file(var.public_key_path)
   }
 

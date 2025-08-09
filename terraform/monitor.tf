@@ -1,6 +1,7 @@
 data "azurerm_lb" "lb" {
   name                = "n01725290-lb"
   resource_group_name = module.resource_group.resource_group_name
+  depends_on          = [module.lb]
 }
 
 resource "azurerm_monitor_action_group" "ag" {

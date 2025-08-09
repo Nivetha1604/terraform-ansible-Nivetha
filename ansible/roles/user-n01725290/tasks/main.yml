@@ -51,6 +51,20 @@
     - user200
     - user300
 
+- name: Authorize each user's own SSH public key
+  become: true
+  copy:
+    src: "/home/{{ item }}/.ssh/id_rsa.pub"
+    dest: "/home/{{ item }}/.ssh/authorized_keys"
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: "0600"
+    remote_src: true
+  loop:
+    - user100
+    - user200
+    - user300
+
 # Download user100's private key from the FIRST host in [linux] only
 - name: Fetch user100 private key from VM1 to controller
   become: true

@@ -18,6 +18,8 @@ module "lb" {
 
   vm_names  = local.vm_names
   nic_names = local.nic_names
+
+  depends_on = [module.linux_vm]
 }
 
 output "lb_public_ip" {
